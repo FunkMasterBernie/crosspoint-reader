@@ -27,6 +27,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
 
  private:
   ButtonNavigator buttonNavigator;
+  bool autoFetchDone = false;
   BrowserState state = BrowserState::LOADING;
   std::vector<OpdsEntry> entries;
   // Row buffer, built whenever entries changes (fetchFeed()/releaseEntries())
@@ -77,6 +78,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void navigateToEntry(const OpdsEntry& entry);
   void navigateBack();
   void downloadBook(const OpdsEntry& book);
+  void autoFetchNewBooks();
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;

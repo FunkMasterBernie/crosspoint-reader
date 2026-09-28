@@ -311,6 +311,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // 2=Title). See OpdsFilenameFormat. Persisted via a category-less SettingInfo::Enum,
   // edited from the OPDS server list; hidden from the on-device Settings screen.
   uint8_t opdsFilenameFormat = 0;
+  // Download books from the server's "recently added" feed on entering the OPDS
+  // browser, skipping anything already on the card. On by default: the browser
+  // is already online with the book closed and the TLS heap cleared, so it is
+  // the one moment a download costs nothing extra.
+  uint8_t opdsAutoFetch = 1;
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior

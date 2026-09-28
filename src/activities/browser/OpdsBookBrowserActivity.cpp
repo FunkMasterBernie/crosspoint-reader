@@ -37,6 +37,26 @@ constexpr fui::ActionId ACTION_BACK = 4;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 
+
+// The "recently added" feed is not a standard OPDS relation, so it is found by
+// looking at what the server advertises rather than hardcoding a path.
+// Calibre-Web publishes it as /opds/new titled "Recently added Books". A server
+// that offers nothing of the sort simply gets no auto-fetch.
+bool looksLikeRecentFeed(const OpdsEntry& entry) {
+  auto lowered = [](std::string v) {
+    for (auto& c : v) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return v;
+  };
+  const std::string href = lowered(entry.href);
+  const std::string title = lowered(entry.title);
+  return href.find("/new") != std::string::npos || title.find("recently added") != std::string::npos;
+}
+
+// A first run against a large library would otherwise block the browser for as
+// long as the card takes to fill. Five is enough to keep up with a normal
+// reading week; the rest arrive next time.
+constexpr int AUTO_FETCH_MAX_BOOKS = 5;
+
 }  // namespace
 
 OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -504,6 +524,143 @@ void OpdsBookBrowserActivity::navigateBack() {
   }
 }
 
+void OpdsBookBrowserActivity::autoFetchNewBooks() {
+  if (autoFetchDone || !SETTINGS.opdsAutoFetch || server.url.empty()) return;
+  // One attempt per visit, success or not: a server that is slow or missing the
+  // feed must not re-cost a round trip on every navigation back to the root.
+  autoFetchDone = true;
+
+  std::string recentPath;
+  {
+    OpdsParser parser;
+    {
+      OpdsParserStream stream{parser};
+      if (!HttpDownloader::fetchUrl(UrlUtils::buildUrl(server.url, ""), stream, server.username, server.password)) {
+        LOG_DBG("OPDS", "Auto-fetch: root feed unavailable");
+        return;
+      }
+    }
+    if (!parser) return;
+    for (const auto& entry : parser.getEntries()) {
+      if (entry.type == OpdsEntryType::NAVIGATION && looksLikeRecentFeed(entry)) {
+        recentPath = entry.href;
+        break;
+      }
+    }
+  }
+  if (recentPath.empty()) {
+    LOG_DBG("OPDS", "Auto-fetch: server advertises no recent-books feed");
+    return;
+  }
+
+  // Resolve every candidate before downloading anything: the parser's entries
+  // are released first so TLS gets the heap, exactly as downloadBook() does.
+  const char* folder = SETTINGS.opdsDownloadFolder;  // "" => SD root
+  bool haveFolder = folder[0] != '\0';
+  if (haveFolder && !Storage.exists(folder) && !Storage.mkdir(folder)) {
+    LOG_ERR("OPDS", "Auto-fetch: mkdir failed for %s, using SD root", folder);
+    haveFolder = false;
+  }
+
+  struct Pending {
+    std::string url;
+    std::string filename;
+  };
+  std::vector<Pending> pending;
+  {
+    const std::string recentUrl = UrlUtils::buildUrl(server.url, recentPath);
+    OpdsParser parser;
+    {
+      OpdsParserStream stream{parser};
+      if (!HttpDownloader::fetchUrl(recentUrl, stream, server.username, server.password)) {
+        LOG_DBG("OPDS", "Auto-fetch: recent feed unavailable");
+        return;
+      }
+    }
+    if (!parser) return;
+    for (const auto& entry : parser.getEntries()) {
+      if (entry.type != OpdsEntryType::BOOK || entry.href.empty()) continue;
+      std::string filename;
+      filename.reserve(96);
+      if (haveFolder) filename += folder;
+      filename += '/';
+      filename +=
+          opdsBookFilename(entry.author, entry.title, static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
+      // The card is the state: the filename a manual download would produce is
+      // the same one, so an existing file means we already have the book — and
+      // deleting a book by hand correctly makes it eligible again.
+      if (Storage.exists(filename.c_str())) continue;
+      pending.push_back({UrlUtils::buildUrl(recentUrl, entry.href), std::move(filename)});
+      if (static_cast<int>(pending.size()) >= AUTO_FETCH_MAX_BOOKS) break;
+    }
+  }
+
+  if (pending.empty()) {
+    LOG_INF("OPDS", "Auto-fetch: nothing new");
+    return;
+  }
+
+  LOG_INF("OPDS", "Auto-fetch: %u new book(s)", static_cast<unsigned>(pending.size()));
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->releaseSdFontCaches();
+  }
+
+  int fetched = 0;
+  cancelDownload = false;
+  goHomeAfterCancel = false;
+  for (const auto& item : pending) {
+    // Re-checked per book: five transfers fragment the heap, and the floor that
+    // held for the first can fail for the last. Stopping early beats a MEMORY_E
+    // death mid-stream.
+    if (ESP.getFreeHeap() < HttpDownloader::MIN_TLS_FREE_HEAP ||
+        ESP.getMaxAllocHeap() < HttpDownloader::MIN_TLS_MAX_ALLOC) {
+      LOG_INF("OPDS", "Auto-fetch: stopping, heap too low (%u free, %u max block)", ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap());
+      break;
+    }
+
+    state = BrowserState::DOWNLOADING;
+    statusMessage = item.filename;
+    downloadProgress = downloadTotal = 0;
+    requestUpdate(true);
+
+    const auto result = HttpDownloader::downloadToFile(
+        item.url, item.filename,
+        [this](const size_t downloaded, const size_t total) {
+          downloadProgress = downloaded;
+          downloadTotal = total;
+          // The activity loop is blocked for the transfer; pump input so Back
+          // still aborts, same contract as a manual download.
+          mappedInput.update(true);
+          if (mappedInput.wasReleased(MappedInputManager::Button::Back)) cancelDownload = true;
+          if (mappedInput.wasHomeGesture()) {
+            cancelDownload = true;
+            goHomeAfterCancel = true;
+          }
+          requestUpdate(true);
+        },
+        &cancelDownload, server.username, server.password);
+
+    if (result == HttpDownloader::OK) {
+      clearBookCache(item.filename);
+      fetched++;
+    } else if (result == HttpDownloader::ABORTED) {
+      LOG_INF("OPDS", "Auto-fetch cancelled after %d book(s)", fetched);
+      break;
+    } else {
+      LOG_ERR("OPDS", "Auto-fetch failed for %s (%d)", item.filename.c_str(), static_cast<int>(result));
+      break;
+    }
+  }
+
+  // Once for the batch: markLibraryIndexDirty() per book would rebuild the
+  // index five times over.
+  if (fetched > 0) {
+    library::markLibraryIndexDirty();
+    LOG_INF("OPDS", "Auto-fetch: %d book(s) downloaded", fetched);
+  }
+}
+
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
@@ -674,6 +831,7 @@ void OpdsBookBrowserActivity::checkAndConnectWifi() {
     state = BrowserState::LOADING;
     statusMessage = tr(STR_LOADING);
     requestUpdate();
+    autoFetchNewBooks();
     fetchFeed(currentPath);
     return;
   }
@@ -693,6 +851,7 @@ void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
     state = BrowserState::LOADING;
     statusMessage = tr(STR_LOADING);
     requestUpdate(true);
+    autoFetchNewBooks();
     fetchFeed(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
