@@ -606,6 +606,14 @@ void OpdsBookBrowserActivity::autoFetchNewBooks() {
   }
 
   int fetched = 0;
+  // Drain the button release that opened this activity. Unlike a manual
+  // download -- which starts from a Confirm press the menu has already
+  // consumed -- auto-fetch begins the instant the browser is entered, so the
+  // first progress callback would otherwise read that stale edge as a Back and
+  // cancel the batch before the first book lands.
+  mappedInput.update(true);
+  (void)mappedInput.wasReleased(MappedInputManager::Button::Back);
+  (void)mappedInput.wasHomeGesture();
   cancelDownload = false;
   goHomeAfterCancel = false;
   for (const auto& item : pending) {
