@@ -1,34 +1,51 @@
 #include "CatalogScreens.h"
 
+#include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include "UIScale.h"
 #include "UITheme.h"
+#include "icons/headerIcons.h"
 
 namespace fui = freeink::ui;
 
 void catalogScreenHeader(UiAppHost::UiScreen& screen, const GfxRenderer& renderer, const char* title,
-                         const fui::BitmapRef& trailingIcon, const fui::ActionId trailingAction) {
-  screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
-  // Same top offset as every GUI.drawHeader caller, so the band lines up with
-  // the rest of the firmware's screens.
-  screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().topPadding));
+                         const fui::BitmapRef& trailingIcon, const fui::ActionId trailingAction,
+                         const fui::ActionId backAction) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto& theme = screen.theme();
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgeBottom;
+  // Same battery/clock band as every GUI.drawHeader screen; the header
+  // heights are unified across themes, so the buttons derive from the band.
+  GUI.applyHeaderStatus(renderer, header);
+  if (backAction != fui::NO_ACTION) {
+    header.leadingIcon = fui::bitmapFromIcon(icon_header_back_32);
+    header.leadingAction = backAction;
+  }
   if (trailingIcon && trailingAction != fui::NO_ACTION) {
     header.trailingIcon = trailingIcon;
     header.trailingAction = trailingAction;
-    // Optically align the icon with the title glyphs: text hangs low in its
-    // line cell by the font's internal leading; drop the button to match.
-    const int titleFontId = uiScaleSpec().titleFontId;
-    header.actionOffsetY =
-        static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
   }
-  screen.header(header);
-  // Same breathing room between header and content as the legacy screens.
-  screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
+  header.titleText = theme.titleText;
+  header.titleText.align = theme.headerTitleAlign;
+  header.styles = theme.popup;
+  if (header.styles.normal.border.kind == fui::PaintKind::None && theme.headerUnderline > 0) {
+    header.styles.normal.border = fui::Paint::solid(fui::Color::Black);
+    header.styles.normal.borderWidth = theme.headerUnderline;
+  }
+  header.trailingStyles = fui::plainStyles(fui::Paint::solid(fui::Color::Black));
+  header.sidePadding = theme.headerSidePadding;
+  header.minTouchSize = theme.minTouchSize;
+  const auto frameRect = screen.frame().screen();
+  fui::header(screen.frame(),
+              fui::Rect{frameRect.x, static_cast<int16_t>(metrics.topPadding), frameRect.width,
+                        static_cast<int16_t>(metrics.headerHeight)},
+              header);
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing), 0,
+                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
 }
 
 void catalogCenteredBlock(UiAppHost::UiScreen& screen, const std::initializer_list<CatalogLine> lines) {

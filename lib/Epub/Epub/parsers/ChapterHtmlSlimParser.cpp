@@ -530,6 +530,13 @@ void ChapterHtmlSlimParser::closeTableCell() {
     return;
   }
 
+  // Latch before the cell leaves currentTextBlock: parseStep()'s dropped-word
+  // check only inspects currentTextBlock, so a cell parsed and moved (or reset
+  // while empty) within one XML buffer would otherwise lose its OOM flag.
+  if (currentTextBlock->hadDroppedWords()) {
+    layoutOom = true;
+  }
+
   if (!tableRowStacked &&
       (tableRowCells.size() >= MAX_GRID_TABLE_COLUMNS || currentTextBlock->size() > MAX_GRID_TABLE_CELL_WORDS)) {
     fallbackTableRowToStacked();
@@ -610,15 +617,22 @@ void ChapterHtmlSlimParser::finishTableRow() {
       lines.reserve(MAX_GRID_TABLE_CELL_WORDS * 2);
     }
     tableRowCells[column]->layoutAndExtractLines(
-        renderer, fontId, textWidth, [this, &lines](std::unique_ptr<TextBlock> line, const uint32_t offset) {
+        renderer, fontId, textWidth,
+        [this, &lines](std::unique_ptr<TextBlock> line, const uint32_t offset) {
           const size_t lineIndex = lines.size();
           lines.push_back(std::move(line));
           if (tableLineVisibleOffsets.size() <= lineIndex) {
             tableLineVisibleOffsets.resize(lineIndex + 1, UINT32_MAX);
           }
           tableLineVisibleOffsets[lineIndex] = std::min(tableLineVisibleOffsets[lineIndex], offset);
-        });
+        },
+        true, characterSpacing, wordSpacingPercent);
     maxLineCount = std::max(maxLineCount, lines.size());
+  }
+  // Cell layout itself can drop lines (TextBlock arena OOM in extractLine);
+  // latch that before the cells are destroyed.
+  for (const auto& cell : tableRowCells) {
+    if (cell && cell->hadDroppedWords()) layoutOom = true;
   }
   tableRowCells.clear();
   const auto clearLayoutLines = [this]() {
@@ -1401,6 +1415,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                                                                                   BlockStyle::CombineAxis::Horizontal);
       self->blockStyleStack.push_back(accumulated);
       self->startNewTextBlock(accumulated.withoutBottom());
+      if (!self->currentTextBlock) {
+        // OOM: layoutOom is latched; bail before the <li> marker path below
+        // dereferences the missing block. parseStep() fails the build.
+        return;
+      }
       self->updateEffectiveInlineStyle();
 
       if (strcmp(name, "li") == 0) {
@@ -1773,7 +1792,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         [self](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
           self->addLineToPage(std::move(textBlock), offset);
         },
-        false);
+        false, self->characterSpacing, self->wordSpacingPercent);
   }
 }
 
@@ -2146,6 +2165,12 @@ bool ChapterHtmlSlimParser::finishParse() {
   // Process last page if there is still text
   if (currentTextBlock) {
     makePages();
+    // Re-check: makePages() latches layoutOom for lines dropped DURING this
+    // final layout, which the entry check above cannot have seen.
+    if (layoutOom) {
+      LOG_ERR("EHP", "Text layout dropped content (OOM); failing section build");
+      return false;
+    }
     if (!pendingAnchorId.empty()) {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
@@ -2261,10 +2286,19 @@ void ChapterHtmlSlimParser::makePages() {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
-  currentTextBlock->layoutAndExtractLines(renderer, fontId, effectiveWidth,
-                                          [this](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
-                                            addLineToPage(std::move(textBlock), offset);
-                                          });
+  currentTextBlock->layoutAndExtractLines(
+      renderer, fontId, effectiveWidth,
+      [this](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
+        addLineToPage(std::move(textBlock), offset);
+      },
+      true, characterSpacing, wordSpacingPercent);
+
+  // Latch again after layout: extractLine can drop a whole line (TextBlock
+  // arena OOM) during the call above, after the pre-layout latch ran, and the
+  // block is replaced right after this returns.
+  if (currentTextBlock->hadDroppedWords()) {
+    layoutOom = true;
+  }
 
   // Fallback: transfer any remaining pending footnotes to current page.
   // Normally addLineToPage handles this via word-index tracking, but this catches

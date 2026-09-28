@@ -31,6 +31,7 @@ class CatalogActivity : public UiListActivity {
   using UiListActivity::UiListActivity;
   static constexpr freeink::ui::ActionId ACTION_SEARCH = ACTION_USER;
   static constexpr freeink::ui::ActionId ACTION_CANCEL = ACTION_USER + 1;
+  static constexpr freeink::ui::ActionId ACTION_BACK = ACTION_USER + 2;
 
   State state = State::LOADING;
   std::string errorMessage, statusMessage;
@@ -43,6 +44,9 @@ class CatalogActivity : public UiListActivity {
   virtual void performSearch(const std::string& query) = 0;
   virtual void downloadFinished(bool cancelled) = 0;
 
+  bool isListState() const {
+    return state == State::BROWSING || state == State::PLUGIN_PICKER || state == State::LIST_PICKER;
+  }
   bool handleCustomInput() override;
   // Idle screens (browsing a fetched feed, a settled error) may auto-sleep;
   // anything with a connection, transfer, or child flow in progress must not.
@@ -64,6 +68,7 @@ class CatalogActivity : public UiListActivity {
  private:
   static void onSearchEvent(const freeink::ui::ActionEvent&, void* user);
   static void onCancelEvent(const freeink::ui::ActionEvent&, void* user);
+  static void onBackEvent(const freeink::ui::ActionEvent&, void* user);
   void onDownloadProgress(size_t downloaded, size_t total);
   // Download input consumes home gestures before ActivityManager sees them.
   bool goHomeAfterCancel = false;

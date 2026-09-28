@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <OpdsStream.h>
 
@@ -244,7 +245,10 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   }
 
   const auto result = downloadFile(downloadUrl, filename, server.username, server.password);
-  if (result == HttpDownloader::OK) clearBookCache(filename);
+  if (result == HttpDownloader::OK) {
+    clearBookCache(filename);
+    library::markLibraryIndexDirty();
+  }
   finishDownload(result);
 }
 
