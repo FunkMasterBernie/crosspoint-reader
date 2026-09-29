@@ -268,6 +268,8 @@ static bool sleepSyncLaunched = false;     // already tried this wake cycle, nev
 static bool sleepSyncFromReader = false;   // what lastSleepFromReader must say afterwards
 static bool sleepSyncFromTimeout = false;  // the original trigger, so the sleep screen matches
 static bool sleepSyncFrameSaved = false;   // Quick Resume frame already captured pre-sync
+// Upper bound on how long an automatic sync may hold off the sleep it interrupted.
+static constexpr unsigned long SLEEP_SYNC_DEADLINE_MS = 90000;
 
 // A position the reader moved but never delivered, and a network session we can
 // pay for without charging the user anything: waking from deep sleep is a full
@@ -303,7 +305,24 @@ void enterDeepSleep(bool fromTimeout = false) {
     LOG_INF("KOSync", "Syncing %s before sleep", APP_STATE.pendingSyncPath.c_str());
     activityManager.replaceActivity(
         std::make_unique<KOReaderSyncActivity>(renderer, mappedInputManager, APP_STATE.pendingSyncPath));
-    return;
+
+    // Drive the swap and the sync from here rather than returning to the main
+    // loop. Every sleep trigger returns out of loop() immediately after calling
+    // this, so activityManager.loop() would not run again until the user touched
+    // something -- and the trigger that is still true would re-enter here every
+    // iteration, starving the very activity it just queued.
+    // KOReaderSyncActivity ends by calling requestDeepSleep(), so this normally
+    // never finishes; the deadline is there so a wedged radio cannot hold the
+    // device awake indefinitely.
+    const unsigned long syncDeadline = millis() + SLEEP_SYNC_DEADLINE_MS;
+    while (sleepSyncRunning && millis() < syncDeadline) {
+      activityManager.loop();
+      delay(5);
+    }
+    if (sleepSyncRunning) {
+      LOG_ERR("KOSync", "Sleep sync did not finish in %lums; sleeping anyway", SLEEP_SYNC_DEADLINE_MS);
+      sleepSyncRunning = false;
+    }
   }
 
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
