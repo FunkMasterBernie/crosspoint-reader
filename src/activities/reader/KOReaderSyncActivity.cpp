@@ -116,6 +116,7 @@ void KOReaderSyncActivity::returnToCaller() {
 
 void KOReaderSyncActivity::clearPendingSync() {
   if (APP_STATE.pendingSyncPath.empty()) return;
+  if (headless()) LOG_INF("KOSync", "Sleep sync done: %s", APP_STATE.pendingSyncPath.c_str());
   APP_STATE.clearSyncPending();
   APP_STATE.saveToFile();
 }
@@ -141,6 +142,7 @@ void KOReaderSyncActivity::failSync(const char* message) {
   }
   // Nobody is waiting to acknowledge an automatic sync, so don't strand the
   // error on screen -- show it briefly, then carry on out of the book.
+  if (headless()) LOG_INF("KOSync", "Sleep sync failed: %s", message ? message : "unknown");
   recordFailedAttempt();
   if (isAutomatic()) markAutoReturn(AUTO_RETURN_ERROR_DELAY_MS);
   requestUpdate(true);
@@ -170,6 +172,7 @@ void KOReaderSyncActivity::completeAlreadySynced() {
 
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
+    if (headless()) LOG_INF("KOSync", "Sleep sync failed: no network");
     LOG_DBG("KOSync", "WiFi connection failed, exiting");
     recordFailedAttempt();
     returnToCaller();
@@ -487,6 +490,13 @@ void KOReaderSyncActivity::onEnter() {
 }
 
 bool KOReaderSyncActivity::connectSilently() {
+  // The credential store is normally populated by WifiSelectionActivity, which
+  // this path deliberately skips -- load it here or there is nothing to join.
+  {
+    RenderLock lock(*this);
+    WIFI_STORE.loadFromFile();
+  }
+
   const std::string ssid = WIFI_STORE.getLastConnectedSsid();
   if (ssid.empty()) {
     LOG_DBG("KOSync", "No last-connected network to join silently");
