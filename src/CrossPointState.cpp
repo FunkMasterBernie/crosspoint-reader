@@ -51,6 +51,8 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["recentOverlaySleepPos"] = recentOverlaySleepPos;
   doc["recentOverlaySleepFill"] = recentOverlaySleepFill;
   doc["readerActivityLoadCount"] = readerActivityLoadCount;
+  doc["pendingSyncPath"] = pendingSyncPath;
+  doc["pendingSyncAttempts"] = pendingSyncAttempts;
   doc["lastSleepFromReader"] = lastSleepFromReader;
   doc["showBootScreen"] = showBootScreen;
 }
@@ -88,7 +90,20 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
     if (legacy != UINT8_MAX) pushRecentSleep(static_cast<uint16_t>(legacy));
   }
   readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
+  pendingSyncPath = doc["pendingSyncPath"] | "";
+  pendingSyncAttempts = doc["pendingSyncAttempts"] | static_cast<uint8_t>(0);
   lastSleepFromReader = doc["lastSleepFromReader"] | false;
   showBootScreen = doc["showBootScreen"] | true;
   return true;
+}
+
+void CrossPointState::markSyncPending(const std::string& path) {
+  if (pendingSyncPath == path && pendingSyncAttempts == 0) return;
+  pendingSyncPath = path;
+  pendingSyncAttempts = 0;
+}
+
+void CrossPointState::clearSyncPending() {
+  pendingSyncPath.clear();
+  pendingSyncAttempts = 0;
 }

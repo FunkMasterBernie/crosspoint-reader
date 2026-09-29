@@ -21,12 +21,23 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint8_t recentOverlaySleepPos = 0;
   uint8_t recentOverlaySleepFill = 0;
   uint8_t readerActivityLoadCount = 0;
+  // A book whose position has moved but has not reached the sync server yet.
+  // Set by the reader as soon as the page changes, read on the way into sleep,
+  // cleared once the server has it. Persisted, so a position still owed when the
+  // battery dies is still owed on the next sleep.
+  std::string pendingSyncPath;
+  uint8_t pendingSyncAttempts = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
+
+  // Records `path` as owed, restarting the attempt count. Cheap enough to call
+  // on every page turn: it only touches memory, and the next state save persists it.
+  void markSyncPending(const std::string& path);
+  void clearSyncPending();
 
   bool isRecentSleep(uint16_t idx, uint8_t checkCount) const;
   bool isRecentOverlaySleep(uint16_t idx, uint8_t checkCount) const;

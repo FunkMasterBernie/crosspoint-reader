@@ -1451,6 +1451,13 @@ void EpubReaderActivity::renderBook() {
     markPageRendered();
   }
 
+  // lastSaved* start at -1, so the first save of a session is the position the
+  // book opened at, not a move away from it. Only a real move owes the server a
+  // sync -- opening a book and backing straight out must not cost one.
+  if (lastSavedSpineIndex >= 0 && (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage)) {
+    APP_STATE.markSyncPending(bookPath);
+  }
+
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
       section->pageCount != lastSavedPageCount) {
     if (saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages())) {

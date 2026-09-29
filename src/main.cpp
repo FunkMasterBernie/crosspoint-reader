@@ -25,6 +25,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DeepSleep.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -32,6 +33,7 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -259,14 +261,57 @@ static bool loadSleepFrameBuffer() {
 }
 
 // Enter deep sleep mode
-void enterDeepSleep(bool fromTimeout = false) {
-  HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
-  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+// Sleep-time sync state, all scoped to one wake cycle (deep sleep wake is a
+// chip reset, so none of it needs to survive).
+static bool sleepSyncRunning = false;      // a sync owns the device; nothing may sleep yet
+static bool sleepSyncLaunched = false;     // already tried this wake cycle, never twice
+static bool sleepSyncFromReader = false;   // what lastSleepFromReader must say afterwards
+static bool sleepSyncFromTimeout = false;  // the original trigger, so the sleep screen matches
+static bool sleepSyncFrameSaved = false;   // Quick Resume frame already captured pre-sync
 
-  const bool isQuickResumeSleep =
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
-      (fromTimeout &&
-       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+// A position the reader moved but never delivered, and a network session we can
+// pay for without charging the user anything: waking from deep sleep is a full
+// reset, so the heap fragmentation that makes every other WiFi screen reboot on
+// the way out costs nothing here.
+static bool quickResumeSleepSelected(const bool fromTimeout) {
+  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
+         (fromTimeout &&
+          SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+}
+
+static bool shouldSyncBeforeSleep() {
+  return !sleepSyncLaunched && KOREADER_STORE.getAutoSync() && KOREADER_STORE.hasCredentials() &&
+         !APP_STATE.pendingSyncPath.empty() && Storage.exists(APP_STATE.pendingSyncPath.c_str());
+}
+
+void enterDeepSleep(bool fromTimeout = false) {
+  // The sync activity finishes by calling requestDeepSleep(); until then every
+  // sleep trigger has to be ignored, including a power button still held down.
+  if (sleepSyncRunning) return;
+
+  if (shouldSyncBeforeSleep()) {
+    sleepSyncLaunched = true;
+    sleepSyncRunning = true;
+    sleepSyncFromReader = activityManager.isReaderActivity();
+    sleepSyncFromTimeout = fromTimeout;
+    // Quick Resume restores the raw framebuffer, and the progress mapper borrows
+    // that buffer as scratch. Capture the page now, while it is still there.
+    if (quickResumeSleepSelected(fromTimeout)) {
+      saveSleepFrameBuffer();
+      sleepSyncFrameSaved = true;
+    }
+    LOG_INF("KOSync", "Syncing %s before sleep", APP_STATE.pendingSyncPath.c_str());
+    activityManager.replaceActivity(
+        std::make_unique<KOReaderSyncActivity>(renderer, mappedInputManager, APP_STATE.pendingSyncPath));
+    return;
+  }
+
+  HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
+  // A sync replaced the reader on the way here, so ask what was on screen when
+  // the sleep was first requested, not what is on screen now.
+  APP_STATE.lastSleepFromReader = sleepSyncLaunched ? sleepSyncFromReader : activityManager.isReaderActivity();
+
+  const bool isQuickResumeSleep = quickResumeSleepSelected(fromTimeout);
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or home paint replaces it.
   APP_STATE.showBootScreen = false;
@@ -279,7 +324,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   activityManager.goToSleep(fromTimeout);
 
   if (isQuickResumeSleep) {
-    saveSleepFrameBuffer();
+    if (!sleepSyncFrameSaved) saveSleepFrameBuffer();
   } else if (Storage.exists(SLEEP_FRAME_FILE)) {
     // A stale Quick Resume frame must not replace the selected sleep screen during wake.
     Storage.remove(SLEEP_FRAME_FILE);
@@ -298,6 +343,11 @@ void enterDeepSleep(bool fromTimeout = false) {
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
+}
+
+void requestDeepSleep() {
+  sleepSyncRunning = false;  // the sync is done; let the sleep through this time
+  enterDeepSleep(sleepSyncFromTimeout);
 }
 
 void setupDisplayAndFonts(bool seamless = false) {

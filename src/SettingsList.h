@@ -391,8 +391,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           "opdsFilenameFormat"),
         // Auto-download of newly added books: persisted + web-exposed, category-less
         // for the same reason as the two above.
-        SettingInfo::Toggle(StrId::STR_OPDS_AUTO_FETCH, &CrossPointSettings::opdsAutoFetch,
-                            "opdsAutoFetch"),
+        SettingInfo::Toggle(StrId::STR_OPDS_AUTO_FETCH, &CrossPointSettings::opdsAutoFetch, "opdsAutoFetch"),
 
         // Frontlight quick-panel state: persisted and web-exposed, but hidden
         // from the on-device Settings screen because the swipe panel owns it.
@@ -449,6 +448,14 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
               KOREADER_STORE.saveToFile();
             },
             "koSyncBehavior", StrId::STR_KOREADER_SYNC),
+        SettingInfo::DynamicEnum(
+            StrId::STR_AUTO_SYNC, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+            [] { return static_cast<uint8_t>(KOREADER_STORE.getAutoSync()); },
+            [](uint8_t v) {
+              KOREADER_STORE.setAutoSync(v != 0);
+              KOREADER_STORE.saveToFile();
+            },
+            "koAutoSync", StrId::STR_KOREADER_SYNC),
         // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
         SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
                             "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR),
