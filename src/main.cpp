@@ -684,6 +684,16 @@ void loop() {
 
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
+  // The fading fix costs roughly 180ms on every screen update -- it powers the
+  // panel down after each refresh and forces the blocking refresh path -- so say
+  // so once, where a serial capture can attribute slow page turns to a setting.
+  static int8_t loggedFadingFix = -1;
+  if (loggedFadingFix != static_cast<int8_t>(SETTINGS.fadingFix)) {
+    loggedFadingFix = static_cast<int8_t>(SETTINGS.fadingFix);
+    LOG_INF("GFX", "Fading fix %s (panel power-cycled per refresh: %s, async refresh: %s)",
+            SETTINGS.fadingFix ? "ON" : "off", SETTINGS.fadingFix ? "yes" : "no",
+            SETTINGS.fadingFix ? "disabled" : "enabled");
+  }
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   // The ROM console does not depend on Arduino USB CDC's connection state.
