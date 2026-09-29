@@ -376,6 +376,12 @@ void EpubReaderActivity::loop() {
   }
 
   rememberBookOnceRendered();
+  // The page moved, so the server is owed this book's position. Recorded here
+  // rather than in the render task: enterDeepSleep() reads the path on this task
+  // without a lock, and a std::string written from the other one can tear.
+  if (syncOwed.exchange(false, std::memory_order_acq_rel)) {
+    APP_STATE.markSyncPending(bookPath);
+  }
 
   // Someone else turned the screen while this reader was stacked (the control
   // center's orientation tile). Reflow before the next render, or the page
@@ -1455,7 +1461,7 @@ void EpubReaderActivity::renderBook() {
   // book opened at, not a move away from it. Only a real move owes the server a
   // sync -- opening a book and backing straight out must not cost one.
   if (lastSavedSpineIndex >= 0 && (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage)) {
-    APP_STATE.markSyncPending(bookPath);
+    syncOwed.store(true, std::memory_order_release);
   }
 
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||

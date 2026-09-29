@@ -287,6 +287,11 @@ static bool shouldSyncBeforeSleep() {
 }
 
 void enterDeepSleep(bool fromTimeout = false) {
+  // Held across the sync too: the idle-timeout path can arrive with power saving
+  // on, and the pump below never returns to the main loop to clear it, so a
+  // reduced clock would otherwise follow the TLS handshake all the way down.
+  HalPowerManager::Lock powerLock;
+
   // The sync activity finishes by calling requestDeepSleep(); until then every
   // sleep trigger has to be ignored, including a power button still held down.
   if (sleepSyncRunning) return;
@@ -329,7 +334,6 @@ void enterDeepSleep(bool fromTimeout = false) {
     fromTimeout = sleepSyncFromTimeout;
   }
 
-  HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   // A sync replaced the reader on the way here, so ask what was on screen when
   // the sleep was first requested, not what is on screen now.
   APP_STATE.lastSleepFromReader = sleepSyncLaunched ? sleepSyncFromReader : activityManager.isReaderActivity();

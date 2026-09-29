@@ -53,6 +53,10 @@ class EpubReaderActivity final : public ReaderActivity {
   bool recentsEntryRemoved = false;
   unsigned long bookmarkMessageTime = 0UL;
   bool pendingReadFolderMove = false;
+  // Set by the render task once the rendered position moves off the page this
+  // session opened on; consumed on the main task in loop(), which is what may
+  // touch APP_STATE's strings. Same split as rememberBookOnceRendered().
+  std::atomic<bool> syncOwed{false};
 
   // Toolbar reader menu (SETTINGS.readerMenuStyle == READER_MENU_TOOLBAR): drawn
   // over the page instead of pushing the full-screen list menu. Select opens the
