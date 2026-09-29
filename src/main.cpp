@@ -311,8 +311,11 @@ void enterDeepSleep(bool fromTimeout = false) {
     // this, so activityManager.loop() would not run again until the user touched
     // something -- and the trigger that is still true would re-enter here every
     // iteration, starving the very activity it just queued.
-    // KOReaderSyncActivity ends by calling requestDeepSleep(), so this normally
-    // never finishes; the deadline is there so a wedged radio cannot hold the
+    // KOReaderSyncActivity ends by calling requestDeepSleep(), which only drops
+    // the flag: the sleep itself is finished by this frame, below. That matters
+    // -- having the activity call enterDeepSleep() again from inside the pump
+    // recursed through goToSleep() back into the pump and overflowed the loop
+    // task's stack. The deadline is there so a wedged radio cannot hold the
     // device awake indefinitely.
     const unsigned long syncDeadline = millis() + SLEEP_SYNC_DEADLINE_MS;
     while (sleepSyncRunning && millis() < syncDeadline) {
@@ -323,6 +326,7 @@ void enterDeepSleep(bool fromTimeout = false) {
       LOG_ERR("KOSync", "Sleep sync did not finish in %lums; sleeping anyway", SLEEP_SYNC_DEADLINE_MS);
       sleepSyncRunning = false;
     }
+    fromTimeout = sleepSyncFromTimeout;
   }
 
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -365,8 +369,8 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 void requestDeepSleep() {
-  sleepSyncRunning = false;  // the sync is done; let the sleep through this time
-  enterDeepSleep(sleepSyncFromTimeout);
+  // Only releases the pump in enterDeepSleep(); that frame does the sleeping.
+  sleepSyncRunning = false;
 }
 
 void setupDisplayAndFonts(bool seamless = false) {

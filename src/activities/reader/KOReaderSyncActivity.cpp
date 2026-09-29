@@ -108,7 +108,8 @@ void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
 
 void KOReaderSyncActivity::returnToCaller() {
   if (returnTo == ReturnTo::Sleep) {
-    requestDeepSleep();  // does not return
+    // Releases the sleep this activity interrupted; main.cpp finishes it.
+    requestDeepSleep();
     return;
   }
   activityManager.goToReader(epubPath);
