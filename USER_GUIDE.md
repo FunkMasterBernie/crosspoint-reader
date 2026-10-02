@@ -6,7 +6,7 @@ firmware. This guide outlines the hardware controls, navigation, and reading fea
 > Almost everything described here is CrossPoint's, and this guide is theirs. Sections
 > marked **Deadtree only** cover the two features this fork adds:
 > [Auto-download New Books](#auto-download-new-books) and
-> [Automatic Sync on Sleep](#automatic-sync-on-sleep). Deadtree is tested only on the
+> [Automatic Sync](#automatic-sync). Deadtree is tested only on the
 > Xteink X3; everything else upstream supports is untested here.
 
 - [Deadtree User Guide](#deadtree-user-guide)
@@ -41,7 +41,7 @@ firmware. This guide outlines the hardware controls, navigation, and reading fea
         - [Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-legacy-public-koreader-server-synckoreaderrocks)
         - [Option C: Self-Hosted Server (Docker Compose)](#option-c-self-hosted-server-docker-compose)
         - [Syncing While Reading](#syncing-while-reading)
-        - [Automatic Sync on Sleep](#automatic-sync-on-sleep)
+        - [Automatic Sync](#automatic-sync)
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
@@ -340,7 +340,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Wi-Fi Networks**: Connect to Wi-Fi networks for file transfers and firmware updates.
 
-- **KOReader Sync**: Options for setting up KOReader for syncing book progress. **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask every time** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation. This submenu also holds **Sync When Sleeping** (Deadtree only) — see [Automatic Sync on Sleep](#automatic-sync-on-sleep).
+- **KOReader Sync**: Options for setting up KOReader for syncing book progress. **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask every time** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation. This submenu also holds **Sync Automatically** (Deadtree only) — see [Automatic Sync](#automatic-sync).
 
 - **OPDS Servers**: Manage one or more OPDS [(Open Publication Distribution System)](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) libraries for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
 
@@ -544,31 +544,44 @@ If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only fo
 
 Once any of the options above is set up, press **Confirm** while reading to open the reader menu, then select **Sync Progress**. Alternatively, set **Settings -> Controls -> Long-press Menu** to **KOSync** and hold Confirm to launch sync directly.
 
-##### Automatic Sync on Sleep
+##### Automatic Sync
 
-*Deadtree only.* **Settings -> System -> KOReader Sync -> Sync When Sleeping** (off by
-default) publishes your place without being asked. Turn it on and you can stop reaching
-for Sync Progress.
+*Deadtree only.* **Settings -> System -> KOReader Sync -> Sync Automatically** (off by
+default) keeps your place in step with your other devices without being asked. Turn it on
+and you can stop reaching for Sync Progress.
 
-It runs on the way into sleep, which is the only moment a sync is free: every other
-Wi-Fi session ends in a reboot to clear the heap fragmentation the radio leaves behind,
-and waking from sleep is already a full reset. The device was shutting down anyway, so
-the whole cost is a few seconds before a screen it was about to show regardless.
+It works at both ends of a reading session.
+
+**Opening a book pulls.** Pick a book from the Library, your recent list or the file
+browser and the device asks the server where you are before showing you the page, so a
+book you continued on your phone opens where the phone left it. You will see a short
+"Syncing" screen; press **Back** to skip it and go straight to the book. Away from a
+known network it gives up after six seconds and opens normally.
+
+**Going to sleep pushes.** On the way into sleep the device sends your position up.
+Sleep is the one moment a sync is free: every other Wi-Fi session ends in a reboot to
+clear the heap fragmentation the radio leaves behind, and waking from sleep is already a
+full reset. The device was shutting down anyway.
 
 What to expect:
 
-- Nothing appears on screen. Your page stays up and the sleep image lands on top of it.
+- The sleep half draws nothing at all. Your page stays up and the sleep image lands on
+  top of it.
 - It fires on any sleep — the idle timeout or the power button — not just when you close
   a book. Closing a book and leaving the device on the home screen still syncs, because
   the position is read back from the book's own progress file rather than from the
   reader.
 - A session where you never turned a page is skipped, so opening a book and backing
   straight out costs nothing.
-- Away from a known network it tries for twelve seconds, gives up quietly and sleeps.
-  The book stays owed and the next sleep tries again, up to three times.
-- Only one book is remembered at a time. If a sync fails and you read something else
+- Away from a known network the sleep half tries for twelve seconds, gives up quietly
+  and sleeps. The book stays owed and the next sleep tries again, up to three times.
+- Only one book is remembered at a time. If a push fails and you read something else
   before the next successful one, the first book's position waits until you open it
   again.
+- Both halves reboot the device when they finish. That is deliberate and takes a couple
+  of seconds; the screen you were heading for appears either way.
+- TXT and `.xtc` books never sync — the protocol and the position mapping are both
+  EPUB-shaped.
 
 - With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
 - With **Sync Behavior** set to **Smart sync**, CrossPoint auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.

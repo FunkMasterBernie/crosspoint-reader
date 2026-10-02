@@ -42,9 +42,22 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
                                 CrossPointPosition localPosition, SavedProgressPosition localKoPos,
                                 std::string localChapterName);
 
-  // Automatic sync on the way into sleep. There is no reader left to ask, so the
-  // position is read back from the book's own progress.bin and mapped here.
-  explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath);
+  // Automatic sync with no reader to ask: the position is read back from the book's
+  // own progress.bin and mapped here. ReturnTo::Sleep is the on-sleep push;
+  // ReturnTo::Reader is the on-open pull, which opens the book once the server has
+  // been consulted.
+  explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
+                                ReturnTo returnTo);
+
+  /**
+   * Consults the sync server before `epubPath` is opened, so a book continued on
+   * another device opens where that device left it rather than jumping forward at
+   * the end of the session.
+   *
+   * Returns true when it has taken over the open; the caller must not also open the
+   * book. False means nothing was owed or possible and the caller should proceed.
+   */
+  static bool pullBeforeOpen(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath);
 
   void onEnter() override;
   void onExit() override;
@@ -110,18 +123,27 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
 
   ReturnTo returnTo = ReturnTo::Reader;
 
-  // True when nothing asked for this sync, so nothing is waiting on a keypress
-  // to dismiss it: failures time out to the destination instead of parking an
-  // error screen in front of a user who was on their way out of the book.
-  bool isAutomatic() const { return returnTo != ReturnTo::Reader; }
+  // True when nothing asked for this sync, so nothing is waiting on a keypress to
+  // dismiss it: failures time out to the destination instead of parking an error
+  // screen in front of someone who was on their way somewhere. Distinct from
+  // headless(), because the on-open pull is automatic but still draws: the user is
+  // standing there waiting for the book.
+  bool automatic = false;
+  bool isAutomatic() const { return automatic; }
   bool headless() const { return returnTo == ReturnTo::Sleep; }
 
   // Set when the position has to come from progress.bin rather than from a
   // reader that handed it over.
   bool loadLocalFromDisk = false;
 
-  // Attempts to reach the network before giving up and letting the device sleep.
+  // How long to chase the network before giving up. The sleep path can afford to
+  // wait -- nobody is watching -- but on open the user is holding a device that has
+  // not shown them their book yet, so it gives up sooner.
   static constexpr unsigned long SILENT_CONNECT_TIMEOUT_MS = 12000;
+  static constexpr unsigned long SILENT_CONNECT_TIMEOUT_ON_OPEN_MS = 6000;
+  unsigned long silentConnectTimeout() const {
+    return headless() ? SILENT_CONNECT_TIMEOUT_MS : SILENT_CONNECT_TIMEOUT_ON_OPEN_MS;
+  }
   // Sleeps in a row that may fail before the owed sync is dropped. Without a cap,
   // a week away from a known network costs a radio session on every single sleep.
   static constexpr uint8_t MAX_SYNC_ATTEMPTS = 3;

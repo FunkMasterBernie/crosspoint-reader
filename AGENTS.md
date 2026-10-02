@@ -22,7 +22,8 @@ other 33 YAML files stay in the tree and are simply not compiled. See [docs/i18n
 | Feature | Setting | Default | Code |
 |---|---|---|---|
 | OPDS auto-download of recently-added books | `opdsAutoFetch` | on | `OpdsBookBrowserActivity::autoFetchNewBooks()` |
-| Progress sync on the way into deep sleep | `koAutoSync` | off | `KOReaderSyncActivity::ReturnTo::Sleep`, intercepted in `enterDeepSleep()` |
+| Progress pulled when a book is opened | `koAutoSync` | off | `KOReaderSyncActivity::pullBeforeOpen()`, hooked in `Activity::onSelectBook()` |
+| Progress pushed on the way into deep sleep | `koAutoSync` | off | `KOReaderSyncActivity::ReturnTo::Sleep`, intercepted in `enterDeepSleep()` |
 
 ### Hard-won constraints — read before touching these paths
 
@@ -55,6 +56,17 @@ Writing a `std::string` there from the render task races every main-task reader.
 
 **6. Quick Resume restores the raw framebuffer**, and `ProgressMapper` borrows that buffer as
 scratch. Anything that maps progress on the way into sleep must capture the frame first.
+
+**7. A sync that returns to the reader must arm `armSkipSyncOnNextReboot()`.** The sync ends in
+`silentRestartToReader()`, which resumes the reader, which would hit `pullBeforeOpen()` again and
+sync forever. The guard is a bit in the `RTC_NOINIT` silent-reboot payload, so it survives
+`ESP.restart()` and not a power cycle — the right lifetime, because after a cold boot syncing on
+open *is* correct. Hook user-initiated opens at `Activity::onSelectBook()` and nowhere else:
+`goToReader()` is also the sync's own return, the boot resume and the bookmark/chapter re-entry.
+
+**8. `APP_STATE.openEpubPath` is what `silentRestartToReader()` resumes.** `ReaderActivity::onEnter`
+clears it and `rememberBookOnceRendered()` sets it after the first paint, so on a path where the
+reader has not run yet it still points at the *previous* book. Set it before rebooting.
 
 ### Performance notes measured on this device
 

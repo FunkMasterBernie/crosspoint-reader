@@ -145,6 +145,11 @@ constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
 constexpr uint32_t SILENT_REBOOT_TARGET_SETTINGS = 2;
 constexpr uint32_t SILENT_REBOOT_TARGET_MAX = SILENT_REBOOT_TARGET_SETTINGS;
 constexpr uint32_t SILENT_REBOOT_LIGHT_ON = 1U << 0;
+// Set when the reboot ends an automatic sync. Without it, resuming the reader
+// would trip the pull-on-open hook again and sync forever.
+constexpr uint32_t SILENT_REBOOT_SKIP_SYNC = 1U << 1;
+static bool armSkipSyncNextReboot = false;
+static bool skipSyncOnOpenOnce = false;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -172,7 +177,16 @@ static bool deepSleepInProgress = false;
 static void armSilentReboot(const uint32_t target) {
   silentRebootTarget = target;
   silentRebootPayload = Frontlight.isOn() ? SILENT_REBOOT_LIGHT_ON : 0;
+  if (armSkipSyncNextReboot) silentRebootPayload |= SILENT_REBOOT_SKIP_SYNC;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
+}
+
+void armSkipSyncOnNextReboot() { armSkipSyncNextReboot = true; }
+
+bool consumeSkipSyncOnOpen() {
+  const bool skip = skipSyncOnOpenOnce;
+  skipSyncOnOpenOnce = false;
+  return skip;
 }
 
 // Returns instead of rebooting when sleep supersedes the reboot; callers keep
@@ -308,8 +322,8 @@ void enterDeepSleep(bool fromTimeout = false) {
       sleepSyncFrameSaved = true;
     }
     LOG_INF("KOSync", "Syncing %s before sleep", APP_STATE.pendingSyncPath.c_str());
-    activityManager.replaceActivity(
-        std::make_unique<KOReaderSyncActivity>(renderer, mappedInputManager, APP_STATE.pendingSyncPath));
+    activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
+        renderer, mappedInputManager, APP_STATE.pendingSyncPath, KOReaderSyncActivity::ReturnTo::Sleep));
 
     // Drive the swap and the sync from here rather than returning to the main
     // loop. Every sleep trigger returns out of loop() immediately after calling
@@ -449,6 +463,7 @@ void setup() {
   const uint32_t snapshotTarget =
       (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_MAX) ? silentRebootTarget : 0;
   const bool silentRebootLightOn = isSilentReboot && (silentRebootPayload & SILENT_REBOOT_LIGHT_ON) != 0;
+  skipSyncOnOpenOnce = isSilentReboot && (silentRebootPayload & SILENT_REBOOT_SKIP_SYNC) != 0;
   silentRebootMagic = 0;
   silentRebootTarget = 0;
   silentRebootPayload = 0;

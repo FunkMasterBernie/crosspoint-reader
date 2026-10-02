@@ -66,5 +66,7 @@ class Activity {
   // Convenience method to facilitate API transition to ActivityManager
   // TODO: remove this in near future
   static void onGoHome(HomeMenuItem item = HomeMenuItem::NONE);
-  static void onSelectBook(const std::string& path);
+  // Not static, unlike onGoHome(): opening a book may first hand off to an activity
+  // that needs this activity's renderer and input manager.
+  void onSelectBook(const std::string& path);
 };

@@ -14,6 +14,7 @@
 #include "DeepSleep.h"
 #include "Epub/Section.h"
 #include "EpubReaderUtils.h"
+#include "FsHelpers.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
@@ -63,7 +64,7 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       localProgress(std::move(localKoPos)) {}
 
 KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const std::string& epubPath)
+                                           const std::string& epubPath, ReturnTo returnTo)
     : Activity("KOReaderSync", renderer, mappedInput),
       UiAppHost(renderer),
       epubPath(epubPath),
@@ -71,8 +72,29 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       remoteProgress{},
       remotePosition{},
       localProgress{},
-      returnTo(ReturnTo::Sleep),
+      automatic(true),
+      returnTo(returnTo),
       loadLocalFromDisk(true) {}
+
+bool KOReaderSyncActivity::pullBeforeOpen(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                          const std::string& epubPath) {
+  // One shot per sync: this activity's own reboot resumes the reader, and without
+  // the RTC flag that resume would pull again, forever.
+  if (consumeSkipSyncOnOpen()) {
+    LOG_DBG("KOSync", "Pull on open skipped: this boot is a sync's own reboot");
+    return false;
+  }
+  if (!KOREADER_STORE.getAutoSync() || !KOREADER_STORE.hasCredentials()) return false;
+  // EPUBs only: the sync protocol's document ids and the progress mapper are both
+  // EPUB-shaped, and TXT/XTC readers never sync.
+  if (!FsHelpers::hasEpubExtension(epubPath)) return false;
+  if (!Storage.exists(epubPath.c_str())) return false;
+
+  LOG_INF("KOSync", "Pull on open: %s", epubPath.c_str());
+  activityManager.replaceActivity(
+      std::make_unique<KOReaderSyncActivity>(renderer, mappedInput, epubPath, ReturnTo::Reader));
+  return true;
+}
 
 void KOReaderSyncActivity::ensureEpubLoaded() {
   if (!epub) {
@@ -111,6 +133,18 @@ void KOReaderSyncActivity::returnToCaller() {
     // Releases the sleep this activity interrupted; main.cpp finishes it.
     requestDeepSleep();
     return;
+  }
+  // silentRestartToReader() resumes APP_STATE.openEpubPath, and on the pull-on-open
+  // path the reader never ran, so nothing has set it to this book yet. Also arm the
+  // one-shot that stops that resume pulling all over again.
+  if (APP_STATE.openEpubPath != epubPath) {
+    APP_STATE.openEpubPath = epubPath;
+    APP_STATE.saveToFile();
+  }
+  armSkipSyncOnNextReboot();
+  if (isAutomatic()) {
+    LOG_INF("KOSync", "Pull on open done (free=%u max_block=%u)", (unsigned)ESP.getFreeHeap(),
+            (unsigned)ESP.getMaxAllocHeap());
   }
   activityManager.goToReader(epubPath);
 }
@@ -520,15 +554,25 @@ bool KOReaderSyncActivity::connectSilently() {
     WiFi.begin(ssid.c_str(), credential->password.c_str());
   }
 
-  const unsigned long deadline = millis() + SILENT_CONNECT_TIMEOUT_MS;
+  const unsigned long timeout = silentConnectTimeout();
+  const unsigned long deadline = millis() + timeout;
   while (millis() < deadline) {
     if (WiFi.status() == WL_CONNECTED) {
       LOG_DBG("KOSync", "Joined %s", ssid.c_str());
       return true;
     }
+    // On the open path the user is waiting for a book they just asked for, so let
+    // Back skip straight to it instead of making them watch the timeout.
+    if (!headless()) {
+      mappedInput.update(true);
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        LOG_DBG("KOSync", "Silent join cancelled");
+        return false;
+      }
+    }
     delay(100);
   }
-  LOG_DBG("KOSync", "Silent join timed out after %lums", SILENT_CONNECT_TIMEOUT_MS);
+  LOG_DBG("KOSync", "Silent join timed out after %lums", timeout);
   return false;
 }
 

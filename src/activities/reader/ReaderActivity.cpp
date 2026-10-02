@@ -128,7 +128,9 @@ bool ReaderActivity::handleEndOfBookMenu(const bool suppressConfirmRelease) {
   std::string openPath;
   switch (endOfBookOptions->handleMenuInput(mappedInput, &openPath)) {
     case EndOfBookOptions::Action::OpenBook:
-      activityManager.goToReader(openPath);
+      // Through onSelectBook, so finishing a book and starting the next one gets
+      // the same position pull as opening it from the library would.
+      onSelectBook(openPath);
       return true;
     case EndOfBookOptions::Action::GoHome:
       onGoHome();

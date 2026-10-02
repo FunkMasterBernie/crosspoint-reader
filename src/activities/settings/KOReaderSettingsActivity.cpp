@@ -98,7 +98,7 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
     KOREADER_STORE.saveToFile();
     requestUpdate();
   } else if (index == 6) {
-    // Sync when closing a book - toggle on/off
+    // Sync automatically (pull on open, push on sleep) - toggle on/off
     KOREADER_STORE.setAutoSync(!KOREADER_STORE.getAutoSync());
     KOREADER_STORE.saveToFile();
     requestUpdate();

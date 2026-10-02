@@ -17,11 +17,13 @@ Deadtree is not affiliated with or endorsed by the CrossPoint Reader project.
 - **OPDS auto-download.** Entering the catalogue browser pulls up to five new books
   from the server's recently-added feed, skipping anything already on the card.
   Setting: `opdsAutoFetch`.
-- **Automatic progress sync on sleep.** The reader publishes your place on the way
-  into deep sleep, which is the one moment the radio is free — every other Wi-Fi
-  session ends in a reboot to clear heap fragmentation, and sleep is already a full
-  reset on wake. It runs headless: the page stays on screen and the sleep image lands
-  on top of it. Setting: `koAutoSync`, off by default.
+- **Automatic progress sync, both directions.** Opening a book asks the server where
+  you are before showing you the page, so a book continued on your phone opens where
+  the phone left it. Going to sleep pushes your position back up — the one moment the
+  radio is free, since every other Wi-Fi session ends in a reboot to clear heap
+  fragmentation and sleep is already a full reset on wake. The sleep half runs
+  headless: the page stays on screen and the sleep image lands on top of it. Setting:
+  `koAutoSync`, off by default.
 - **English-only build.** Dropping the other 33 translations returns about 370 KB of
   flash. Set by `custom_i18n_builtin_langs` in `platformio.ini`; delete that line to
   get all languages back.
