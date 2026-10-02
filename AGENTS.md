@@ -1,7 +1,84 @@
-# CrossPoint Reader Development Guide
+# Deadtree Development Guide
 
-Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3)
+Project: Open-source e-reader firmware for Xteink X3/X4 (ESP32-C3). **Deadtree is a fork of
+CrossPoint Reader**; this guide is CrossPoint's, with the fork's differences in the next section.
 Mission: Provide a lightweight, high-performance reading experience focused on EPUB rendering on constrained hardware.
+
+---
+
+## Deadtree: what differs from upstream
+
+**Hardware reality.** Only the **Xteink X3** is built and tested here (ESP32-C3, UC8253 panel,
+792x528, 52,272-byte framebuffer). The `gh_release` target still compiles for the X4, and the
+upstream S3 devices still exist in the tree, but nothing but the X3 is verified. Do not claim a
+change works on a device that has not been flashed.
+
+**English-only build.** `[env:gh_release]` sets `custom_i18n_builtin_langs = en`, worth ~370 KB of
+flash (85.2% -> 79.5% of the app partition). Keep adding `STR_*` keys to `english.yaml` only; the
+other 33 YAML files stay in the tree and are simply not compiled. See [docs/i18n.md](docs/i18n.md).
+
+**Added features, both off or on as noted, both exercised on hardware:**
+
+| Feature | Setting | Default | Code |
+|---|---|---|---|
+| OPDS auto-download of recently-added books | `opdsAutoFetch` | on | `OpdsBookBrowserActivity::autoFetchNewBooks()` |
+| Progress sync on the way into deep sleep | `koAutoSync` | off | `KOReaderSyncActivity::ReturnTo::Sleep`, intercepted in `enterDeepSleep()` |
+
+### Hard-won constraints — read before touching these paths
+
+**1. Draining stale input before an automatic action.** Download progress callbacks pump
+`MappedInputManager` so Back can cancel. Any action that starts the instant an activity is entered
+still has the *button release that entered it* queued, and the first callback reads it as a cancel.
+Drain it first:
+
+```cpp
+mappedInput.update(true);
+(void)mappedInput.wasReleased(MappedInputManager::Button::Back);
+(void)mappedInput.wasHomeGesture();
+```
+
+**2. A sleep trigger returns out of `loop()` immediately.** Anything that intercepts a sleep and
+merely queues an activity is starved: the still-true trigger re-enters the intercept every
+iteration and `activityManager.loop()` never runs. Pump it inline, the way `goToSleep()` does.
+
+**3. The interrupted frame must finish the sleep.** Having the queued activity call
+`enterDeepSleep()` again recurses through `goToSleep()` back into the pump and overflows the loop
+task's stack (Guru Meditation, Stack protection fault). `requestDeepSleep()` only clears a flag;
+the original frame sleeps.
+
+**4. `WIFI_STORE.loadFromFile()` is called by `WifiSelectionActivity`, not at boot.** Code that
+brings Wi-Fi up without that activity must load the store itself or it finds no saved networks.
+
+**5. `APP_STATE` strings must be written from the main task.** The render task sets an atomic and
+`loop()` does the write — see `rememberBookOnceRendered()` and `EpubReaderActivity::syncOwed`.
+Writing a `std::string` there from the render task races every main-task reader.
+
+**6. Quick Resume restores the raw framebuffer**, and `ProgressMapper` borrows that buffer as
+scratch. Anything that maps progress on the way into sleep must capture the frame first.
+
+### Performance notes measured on this device
+
+- **"Sunlight Fading Fix" (`fadingFix`, Settings -> Display) costs ~50% of a page turn.** It is the
+  only thing in the firmware that passes `turnOffScreen`, so every refresh gets its own
+  `X3_PON` (127 ms) and `X3_POF` (52 ms), and it forces the blocking refresh path, forfeiting any
+  render/refresh overlap. A page turn is 713 ms of panel time with it off, 1071 ms with it on.
+  Confirmed by on-device A/B. **Leave it off.**
+- Static RAM is 57,936 bytes and the large transients are already chunked; the heap low-water
+  during image rendering is ~12 KB against a 40 KB TLS floor, which is why every network path
+  tears the book down before opening a socket.
+- Still open: `Uc8253X3Driver::displayFinish` has an unconditional `delay(200)` after every
+  non-fast refresh. Fixing it means forking `freeink-sdk` too.
+
+### Build host notes (macOS)
+
+- `./bin/clang-format-fix -g` needs clang-format >= 21. Install it into the PlatformIO venv with
+  `~/.platformio/penv/bin/pip install clang-format`, then run the wrapper with
+  `PATH="$HOME/.platformio/penv/bin:$PATH"`.
+- Always flash with `--after no-reset`; a reset boots the reading app and there is no BOOT button,
+  so the port is lost until the magnetic cable is replugged. `esptool ... --after hard-reset run`
+  boots the new image without replugging.
+
+---
 
 ## AI Agent Identity and Cognitive Rules
 
@@ -703,7 +780,7 @@ upstream    https://github.com/crosspoint-reader/crosspoint-reader.git (fetch/pu
 
 1. Integration branches and PR comparisons target `develop`, not `master` or the remote's symbolic HEAD.
 2. Never push to any remote or open/close a PR without explicit user approval. Complete local work and any requested local commit, then stop.
-3. If the user explicitly approves a push, inspect remotes again and use `fork` for the feature branch unless the user specifies otherwise.
+3. If the user explicitly approves a push, inspect remotes again and use `fork` for the feature branch unless the user specifies otherwise. **In this clone `origin` is still upstream CrossPoint and `fork` is the Deadtree repository, so an approved push goes to `fork`.** Deadtree work lives on `feature/koreader-auto-sync`, stacked on `feat/opds-auto-fetch`.
 4. Never add Claude, Codex, or assistant self-attribution as a commit co-author or generated-by trailer.
 5. When a change supersedes or adapts another person's PR, verify the original human author from Git/GitHub and add that person as `Co-Authored-By`; skip bot authors.
 

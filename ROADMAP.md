@@ -1,5 +1,9 @@
 # CrossPoint Reader Roadmap
 
+> **This file is upstream CrossPoint Reader's, kept for reference.** Deadtree is a
+> fork and has no governing body, roadmap or review process of its own — see
+> [`README.md`](README.md). Nothing here describes a commitment Deadtree makes.
+
 This roadmap describes how CrossPoint is moving through the tighter scope defined in [SCOPE.md](SCOPE.md). It is
 intentionally phased: Phase 0 closed out the commitments already in flight before locking down to the stricter
 "fill gaps the stock firmware leaves" delineator.

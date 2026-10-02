@@ -436,6 +436,60 @@ Child calls: setResult(MyResult{...}); finish();
   └── requestUpdate()   // automatic re-render for parent
 ```
 
+### Running an Activity Inside a Sleep Request (Deadtree)
+
+`enterDeepSleep()` can hand control to an activity instead of sleeping — Deadtree's
+automatic progress sync uses this. The mechanism is narrow and easy to get wrong, so if
+you add a second user of it, follow this shape exactly.
+
+```cpp
+void enterDeepSleep(bool fromTimeout) {
+  if (sleepSyncRunning) return;          // a deferred sleep owns the device
+
+  if (shouldSyncBeforeSleep()) {
+    sleepSyncRunning = true;
+    activityManager.replaceActivity(std::make_unique<MyActivity>(...));
+
+    // Pump here. Do NOT just return.
+    const unsigned long deadline = millis() + SLEEP_SYNC_DEADLINE_MS;
+    while (sleepSyncRunning && millis() < deadline) {
+      activityManager.loop();
+      delay(5);
+    }
+    sleepSyncRunning = false;            // deadline expired: sleep anyway
+  }
+  ... normal sleep ...
+}
+```
+
+Three things make this necessary:
+
+1. **Every sleep trigger returns out of `loop()` immediately** after calling
+   `enterDeepSleep()`. Queue an activity and return, and the swap never happens: the
+   still-true trigger re-enters the intercept on the next iteration and
+   `activityManager.loop()` is never reached. The activity sits pending until the user
+   touches something.
+2. **The activity must not call `enterDeepSleep()` back.** That recurses through
+   `goToSleep()` — which pumps the activity loop itself — into the pump again, nesting a
+   sleep attempt per pass until the loop task's stack overflows (`Guru Meditation Error:
+   Stack protection fault`). The activity calls `requestDeepSleep()`, which only clears
+   the flag; the frame that was interrupted does the sleeping.
+3. **`deepSleepInProgress` is latched before the outgoing activity's `onExit()` runs**,
+   so a Wi-Fi activity's `silentRestart()` is already a no-op by then. An activity on
+   this path should still skip the restart explicitly rather than depend on that.
+
+Also note that `APP_STATE.lastSleepFromReader` is computed from
+`activityManager.isReaderActivity()` at sleep time. An activity that replaced the reader
+on the way into sleep makes that read `false`, so latch the real answer at intercept time
+or the device wakes to Home instead of the page.
+
+Rendering is optional on this path. `ActivityManager` only renders when a request
+arrives, so an activity that overrides `requestUpdate()`/`requestUpdateAndWait()` to do
+nothing leaves whatever was on the panel untouched — which is what makes a sleep-time
+sync invisible. If Quick Resume is active the raw framebuffer is saved after
+`goToSleep()`, so anything that scribbles the framebuffer (a `FrameBufferLoan`, for
+instance) must capture the frame before it starts.
+
 ### Common Pitfalls
 
 **Calling `finish()` and continuing to access `this`**: `finish()` sets `pendingAction = Pop` but does not immediately destroy the activity. The activity is destroyed on the next `ActivityManager::loop()` iteration. It's safe to access member variables after `finish()` within the same function, but don't rely on the activity surviving past the current `loop()` call.

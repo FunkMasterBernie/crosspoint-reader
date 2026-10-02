@@ -1,5 +1,9 @@
 # Project Vision & Scope: CrossPoint Reader
 
+> **This file is upstream CrossPoint Reader's, kept for reference.** Deadtree is a
+> fork and has no governing body, roadmap or review process of its own — see
+> [`README.md`](README.md). Nothing here describes a commitment Deadtree makes.
+
 The goal of CrossPoint Reader is to create an efficient, open-source reading experience for ESP32-based e-reader devices. Xteink hardware (X3, X4) is where the project started and remains a primary target, but CrossPoint is explicitly broadening to support the wider ecosystem of small ESP32 e-ink readers. We believe a dedicated e-reader should do one thing exceptionally well: **facilitate focused reading.**
 
 ## 1. Core Mission
