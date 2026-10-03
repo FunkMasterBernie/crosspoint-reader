@@ -346,6 +346,33 @@ std::string authorKey(const std::string_view author) {
 // reach "d'a cote". Treating it as a word boundary here leaves the sort untouched.
 bool isWordBreak(const char c) { return c == ' ' || c == '\''; }
 
+std::string sortKey(const std::string_view title, const std::string_view series, const float seriesIndex) {
+  std::string folded = fold(title);
+  if (series.empty()) return folded;
+
+  std::string seriesFold = fold(series);
+  if (seriesFold.empty()) return folded;
+  if (seriesFold.size() > SERIES_FOLD_MAX_BYTES) {
+    seriesFold.resize(static_cast<size_t>(utf8SafeTruncateBuffer(seriesFold.data(), SERIES_FOLD_MAX_BYTES)));
+  }
+
+  // Negative or absurd indices are metadata errors, not positions; clamp rather
+  // than let them sort a volume off the front or overflow the field.
+  const float clamped = seriesIndex < 0.0f ? 0.0f : (seriesIndex > 9999.9f ? 9999.9f : seriesIndex);
+  const auto tenths = static_cast<unsigned>(clamped * 10.0f + 0.5f);
+  char digits[6];
+  snprintf(digits, sizeof(digits), "%05u", tenths);
+
+  std::string key;
+  key.reserve(seriesFold.size() + 1 + 5 + 1 + folded.size());
+  key += seriesFold;
+  key += ' ';
+  key += digits;
+  key += ' ';
+  key += folded;
+  return key;
+}
+
 bool matchesQuery(const std::string_view haystack, const std::string_view needle) {
   if (needle.empty()) return true;
 

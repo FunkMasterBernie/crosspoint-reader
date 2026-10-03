@@ -231,6 +231,11 @@ bool LibraryIndexFile::readSourceAuthor(const ClixRecord& record, std::string& o
   return readBlobField(record, 2, out);
 }
 
+// Calibre's series name, empty for a standalone book. Equality between two
+// records is what "next book in this series" means, so it is read from here
+// rather than parsed back out of the sort key.
+bool LibraryIndexFile::readSeries(const ClixRecord& record, std::string& out) { return readBlobField(record, 3, out); }
+
 bool LibraryIndexFile::readPath(const ClixRecord& record, std::string& out) {
   out.clear();
   if (!opened || record.folderId >= head.folderCount) return false;

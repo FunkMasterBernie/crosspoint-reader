@@ -89,6 +89,9 @@ class LibraryIndexFile {
   // valid value, so success is independent of `out.empty()`.
   bool readSourceAuthor(const ClixRecord& record, std::string& out);
 
+  // Calibre's series name for this book; empty when standalone.
+  bool readSeries(const ClixRecord& record, std::string& out);
+
   // Absolute path of the book, rebuilt from its folder record.
   bool readPath(const ClixRecord& record, std::string& out);
 

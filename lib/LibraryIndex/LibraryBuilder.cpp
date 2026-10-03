@@ -38,6 +38,7 @@ constexpr size_t NAME_BUF_SIZE = 512;
 // the display name. Fixed stride keeps the second pass a seek rather than a scan.
 constexpr size_t STAGE_NAME_BYTES = 255;
 constexpr size_t STAGE_AUTHOR_BYTES = 128;
+constexpr size_t STAGE_SERIES_BYTES = 128;
 // A folder path is stored behind one length byte in the folder section.
 constexpr size_t FOLDER_PATH_BYTES = 255;
 struct StagedEntry {
@@ -55,6 +56,10 @@ struct StagedEntry {
   // title on the other.
   uint8_t titleLen;
   char title[STAGE_NAME_BYTES];
+  // Calibre's series, kept so the blob can carry it and "next in this series"
+  // can compare two records without reopening either book.
+  uint8_t seriesLen;
+  char series[STAGE_SERIES_BYTES];
 };
 constexpr size_t STAGE_STRIDE = sizeof(StagedEntry);
 
@@ -299,6 +304,8 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   // and a name pulled out of one by pattern is a guess wearing a fact's clothes.
   std::string title = stemOf(name);
   std::string author;
+  std::string series;
+  float seriesIndex = 0.0f;
   bool titleFromBook = false;
   bool authorFromBook = false;
 
@@ -325,6 +332,9 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
       st.failed = true;
       return false;
     }
+    // Carried across with the rest; the fold-version gate above means a reused
+    // record always came from a build that already stored this.
+    st.previous->readSeries(priorRecord, series);
     const bool hasBookTitle = st.previous->readTitle(priorRecord, title);
     if (!hasBookTitle && st.previous->ioFailed()) {
       st.failed = true;
@@ -347,7 +357,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
     st.stats->parsed++;
     Epub epub(fullPath, CACHE_DIR);
     std::string bookTitle;
-    if (epub.loadMetadata(bookTitle, author)) {
+    if (epub.loadMetadata(bookTitle, author, &series, &seriesIndex)) {
       entry.record.metadataStatus = CLIX_METADATA_EXTRACTED;
       if (!bookTitle.empty()) {
         title = std::move(bookTitle);
@@ -372,7 +382,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
 
   // An absent author is a fact, not a gap to fill: the row joins the Unknown
   // group rather than borrowing a name from its surroundings.
-  const std::string folded = reuseMetadata ? std::string() : fold(title);
+  const std::string folded = reuseMetadata ? std::string() : sortKey(title, series, seriesIndex);
   const std::string key = reuseMetadata ? std::string() : authorKey(author);
 
   entry.record.fileSize = fileSize;
@@ -400,6 +410,8 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   const std::string& shownTitle = titleFromBook ? title : kNoTitle;
   entry.titleLen = static_cast<uint8_t>(std::min<size_t>(shownTitle.size(), STAGE_NAME_BYTES));
   if (entry.titleLen > 0) memcpy(entry.title, shownTitle.data(), entry.titleLen);
+  entry.seriesLen = static_cast<uint8_t>(std::min<size_t>(series.size(), STAGE_SERIES_BYTES));
+  if (entry.seriesLen > 0) memcpy(entry.series, series.data(), entry.seriesLen);
   if (!reuseMetadata) {
     const size_t foldBytes = std::min(folded.size(), CLIX_FOLD_BYTES);
     entry.record.foldLen = static_cast<uint8_t>(utf8SafeTruncateBuffer(folded.data(), static_cast<int>(foldBytes)));
@@ -550,7 +562,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
 // truth.
 uint32_t blobBytesFor(const StagedEntry& entry, const StagedEntry& canonical) {
   return sizeof(entry.pathHash) + entry.record.nameLen + 1u + canonical.authorLen + 1u + entry.titleLen + 1u +
-         entry.authorLen;
+         entry.authorLen + 1u + entry.seriesLen;
 }
 
 bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order, const uint16_t* resolvedFirstSeen,
@@ -997,6 +1009,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     if (entry.titleLen > 0) put(entry.title, entry.titleLen);
     put(&entry.authorLen, 1);
     if (entry.authorLen > 0) put(entry.author, entry.authorLen);
+    put(&entry.seriesLen, 1);
+    if (entry.seriesLen > 0) put(entry.series, entry.seriesLen);
     blobWritten += blobBytesFor(entry, canonical);
   }
   header.nameLen = blobWritten;

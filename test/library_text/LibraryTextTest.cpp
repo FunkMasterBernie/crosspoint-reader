@@ -285,3 +285,58 @@ TEST(LibraryPath, RootDoesNotGainASecondSeparator) {
 TEST(LibraryPath, NestedFolderGetsOneSeparator) {
   EXPECT_EQ(library::joinLibraryPath("/Books", "book.epub"), "/Books/book.epub");
 }
+
+// --- Series sort key ---------------------------------------------------------
+
+TEST(SortKey, NoSeriesIsJustTheFoldedTitle) {
+  EXPECT_EQ(library::sortKey("Blood Meridian", "", 0.0f), library::fold("Blood Meridian"));
+}
+
+// The whole point: volumes file together and in reading order, not alphabetically
+// by their own titles.
+TEST(SortKey, VolumesSortByPositionNotTitle) {
+  const auto one = library::sortKey("Decision at Thunder Rift", "BattleTech", 1.0f);
+  const auto five = library::sortKey("Warrior: En Garde", "BattleTech", 5.0f);
+  const auto ten = library::sortKey("Wolves On The Border", "BattleTech", 10.0f);
+  EXPECT_LT(one, five);
+  EXPECT_LT(five, ten);  // 10 after 5: the fixed width is what buys this
+}
+
+TEST(SortKey, HalfPositionsKeepTheirPlace) {
+  const auto two = library::sortKey("Second", "S", 2.0f);
+  const auto novella = library::sortKey("Interlude", "S", 2.5f);
+  const auto three = library::sortKey("Third", "S", 3.0f);
+  EXPECT_LT(two, novella);
+  EXPECT_LT(novella, three);
+}
+
+// A series book files under the series' initial, which is what makes the A-Z
+// jump list agree with the order the rows are in.
+TEST(SortKey, GroupInitialComesFromTheSeries) {
+  const auto key = library::sortKey("Decision at Thunder Rift", "BattleTech", 1.0f);
+  EXPECT_EQ(library::foldedGroupInitial(key), library::foldedGroupInitial(library::fold("BattleTech")));
+}
+
+// Search is word-prefix over every word of the key, so moving the title behind
+// the series must not cost a title search.
+TEST(SortKey, TitleAndSeriesWordsBothStaySearchable) {
+  const auto key = library::sortKey("Decision at Thunder Rift", "BattleTech", 1.0f);
+  EXPECT_TRUE(library::matchesQuery(key, library::fold("thunder")));
+  EXPECT_TRUE(library::matchesQuery(key, library::fold("rift")));
+  EXPECT_TRUE(library::matchesQuery(key, library::fold("battletech")));
+  EXPECT_FALSE(library::matchesQuery(key, library::fold("mistress")));
+}
+
+// 96 bytes are shared with the title; a long series name must not take them all.
+TEST(SortKey, LongSeriesNameLeavesRoomForTheTitle) {
+  const std::string series(200, 'x');
+  const auto key = library::sortKey("The Actual Title", series, 1.0f);
+  EXPECT_LE(key.size() - library::fold("The Actual Title").size(), library::SERIES_FOLD_MAX_BYTES + 7);
+  EXPECT_TRUE(library::matchesQuery(key, library::fold("actual")));
+}
+
+// A series name that folds away entirely (punctuation only) must not produce a
+// key that sorts before every real one.
+TEST(SortKey, UnfoldableSeriesFallsBackToTheTitle) {
+  EXPECT_EQ(library::sortKey("A Title", "...", 1.0f), library::fold("A Title"));
+}

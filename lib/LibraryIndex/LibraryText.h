@@ -54,6 +54,28 @@ std::string fold(std::string_view text);
 // number/non-letter. The Library renders 0 as its shared '#' group.
 uint32_t foldedGroupInitial(std::string_view folded);
 
+// Longest series fold allowed inside a sort key, so a long series name cannot
+// starve the title of the 96 bytes they share.
+inline constexpr size_t SERIES_FOLD_MAX_BYTES = 32;
+
+/**
+ * The sort key a record's `fold` field holds.
+ *
+ * Without a series this is just fold(title), exactly as before. With one it
+ * becomes `fold(series) + ' ' + <5 digits> + ' ' + fold(title)`, which files the
+ * volumes of a series together and in reading order, and makes the Library's A-Z
+ * group the series' initial -- what Calibre does, and the point of the exercise.
+ *
+ * The separator is a space because matchesQuery() breaks words on spaces: every
+ * word of the title stays individually searchable wherever it sits in the key,
+ * and the series' words become searchable too. Anything else would glue them
+ * into one unsearchable word.
+ *
+ * The index is `seriesIndex * 10`, zero-padded to five digits, so 10 sorts after
+ * 2 and Calibre's half positions for novellas (2.5) keep their place.
+ */
+std::string sortKey(std::string_view title, std::string_view series, float seriesIndex);
+
 // Tidy a person's name for DISPLAY, without reordering it.
 //
 // Drops bracketed spans ("George Sand [Sand, George]"), everything after a

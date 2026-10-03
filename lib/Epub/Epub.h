@@ -47,7 +47,8 @@ class Epub {
   ~Epub() = default;
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
-  bool loadMetadata(std::string& title, std::string& author);
+  bool loadMetadata(std::string& title, std::string& author, std::string* series = nullptr,
+                    float* seriesIndex = nullptr);
   bool clearCache() const;
   void setupCacheDir() const;
   const std::string& getCachePath() const;
