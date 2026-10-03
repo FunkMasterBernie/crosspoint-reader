@@ -33,6 +33,7 @@ firmware. This guide outlines the hardware controls, navigation, and reading fea
       - [3.6.2 Reader](#362-reader)
       - [3.6.3 Controls](#363-controls)
       - [3.6.4 System](#364-system)
+      - [Series (Deadtree only)](#series-deadtree-only)
       - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
         - [Auto-download New Books](#auto-download-new-books)
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
@@ -346,7 +347,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Clear Reading Cache**: Clear the internal SD card cache.
 
-- **Use book metadata**: Read the title and author stored inside each book when the Library index is rebuilt. When disabled or unavailable, the Library uses the filename.
+- **Use book metadata**: Read the title, author and series stored inside each book when the Library index is rebuilt. When disabled or unavailable, the Library uses the filename.
 
 - **Rebuild library index**: Rescan the SD card for books while preserving the arrival history of books already in the index.
 
@@ -355,6 +356,27 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Language**: Set the UI language. CrossPoint supports 32 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, European Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Arabic, Slovak, Bosnian, Vietnamese, Norwegian Bokmål, Indonesian, and Orangutan.
 
 - **Manage Fonts**: Browse, download, and manage custom font families installed from the SD card. See [Custom Fonts (SD Card)](#38-custom-fonts-sd-card) for more information.
+
+#### Series (Deadtree only)
+
+A book that carries Calibre's series metadata is filed under its **series** rather
+than its own title, and sorted by its position in that series. So the BattleTech
+novels sit together, 1 through 9, under B — not scattered under D for "Decision at
+Thunder Rift" and W for "Warrior: En Garde". Novellas that Calibre files at half
+positions (2.5) keep their place between their neighbours. Books with no series are
+unaffected and still file under their titles.
+
+Searching still finds a book by any word of its title, and now by its series name
+too.
+
+**When you finish a book, the next volume is the first suggestion** on the end-of-book
+screen. It works across folders, so the next volume being filed under a different
+author is no obstacle.
+
+This needs the series to be inside the book file. Calibre keeps series in its own
+database and does not write it into your EPUBs unless told to — run
+`calibredb embed_metadata all` against your library, then copy the books to the card
+again. A book without embedded series metadata simply behaves as it always did.
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 

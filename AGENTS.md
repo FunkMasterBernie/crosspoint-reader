@@ -24,6 +24,7 @@ other 33 YAML files stay in the tree and are simply not compiled. See [docs/i18n
 | OPDS auto-download of recently-added books | `opdsAutoFetch` | on | `OpdsBookBrowserActivity::autoFetchNewBooks()` |
 | Progress pulled when a book is opened | `koAutoSync` | off | `KOReaderSyncActivity::pullBeforeOpen()`, hooked in `Activity::onSelectBook()` |
 | Progress pushed on the way into deep sleep | `koAutoSync` | off | `KOReaderSyncActivity::ReturnTo::Sleep`, intercepted in `enterDeepSleep()` |
+| Series-ordered shelf and next-volume suggestion | always on | - | `library::sortKey()`, `NextBookFinder::findNextInSeries()` |
 
 ### Hard-won constraints — read before touching these paths
 
@@ -67,6 +68,16 @@ open *is* correct. Hook user-initiated opens at `Activity::onSelectBook()` and n
 **8. `APP_STATE.openEpubPath` is what `silentRestartToReader()` resumes.** `ReaderActivity::onEnter`
 clears it and `rememberBookOnceRendered()` sets it after the first paint, so on a path where the
 reader has not run yet it still points at the *previous* book. Set it before rebooting.
+
+**9. The Library sort key is series-aware, and it lives in `ClixRecord::fold`.** That field
+serves sort, search *and* the A-Z group initial at once. Overloading it is safe only because
+`matchesQuery()` is word-prefix over every word of the key rather than a substring match, and only
+because the separator is a space -- `isWordBreak()` breaks on spaces, so anything else would glue
+series and title into one unsearchable word. The record is exactly 128 bytes and full, which is why
+the key went here and the series *name* went into the name blob as a fourth field. Changing the key
+means bumping `CLIX_FOLD_VERSION`; changing the blob means bumping `CLIX_FORMAT_VERSION`; and
+`reuseMetadata` in `LibraryBuilder.cpp` gates on the fold version, so a bump is also what forces
+existing books to re-extract rather than keep stale metadata.
 
 ### Performance notes measured on this device
 

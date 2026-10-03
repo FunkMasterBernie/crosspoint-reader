@@ -24,6 +24,11 @@ Deadtree is not affiliated with or endorsed by the CrossPoint Reader project.
   fragmentation and sleep is already a full reset on wake. The sleep half runs
   headless: the page stays on screen and the sleep image lands on top of it. Setting:
   `koAutoSync`, off by default.
+- **Series-aware library.** Books carrying Calibre's series metadata file under
+  their series and sort by position in it, so volumes sit together in reading
+  order; finishing one offers the next as the first end-of-book suggestion, even
+  when it lives under a different author. Needs `calibredb embed_metadata` to have
+  put the series inside the files.
 - **English-only build.** Dropping the other 33 translations returns about 370 KB of
   flash. Set by `custom_i18n_builtin_langs` in `platformio.ini`; delete that line to
   get all languages back.
