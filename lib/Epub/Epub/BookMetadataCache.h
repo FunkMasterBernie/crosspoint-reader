@@ -15,6 +15,10 @@ class BookMetadataCache {
     std::string title;
     std::string author;
     std::string language;
+    // Calibre's series and position in it; empty/0 when the book is standalone or
+    // its metadata was never embedded (calibredb embed_metadata writes them).
+    std::string series;
+    float seriesIndex = 0.0f;
     std::string coverItemHref;
     std::string textReferenceHref;
   };

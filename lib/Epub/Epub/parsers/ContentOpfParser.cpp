@@ -216,19 +216,27 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   }
 
   if (self->state == IN_METADATA && xmlLocalNameEquals(name, "meta")) {
-    bool isCover = false;
-    std::string coverItemId;
+    // name/content order is not guaranteed, so collect both and decide after.
+    const char* metaName = nullptr;
+    const char* metaContent = nullptr;
 
     for (int i = 0; atts[i]; i += 2) {
-      if (strcmp(atts[i], "name") == 0 && strcmp(atts[i + 1], "cover") == 0) {
-        isCover = true;
+      if (strcmp(atts[i], "name") == 0) {
+        metaName = atts[i + 1];
       } else if (strcmp(atts[i], "content") == 0) {
-        coverItemId = atts[i + 1];
+        metaContent = atts[i + 1];
       }
     }
 
-    if (isCover) {
-      self->coverItemId = coverItemId;
+    if (metaName && metaContent) {
+      if (strcmp(metaName, "cover") == 0) {
+        self->coverItemId = metaContent;
+      } else if (strcmp(metaName, "calibre:series") == 0 && self->series.empty()) {
+        self->series.assign(metaContent, strnlen(metaContent, MAX_METADATA_TEXT));
+      } else if (strcmp(metaName, "calibre:series_index") == 0) {
+        // "1.0", "2", "2.5" -- half indices are how Calibre files novellas.
+        self->seriesIndex = strtof(metaContent, nullptr);
+      }
     }
     return;
   }

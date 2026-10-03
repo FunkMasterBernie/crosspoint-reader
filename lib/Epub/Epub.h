@@ -55,6 +55,10 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  // Calibre's series for this book, empty when standalone or never embedded, and
+  // its position in that series (0 when unknown; Calibre uses halves for novellas).
+  const std::string& getSeries() const;
+  float getSeriesIndex() const;
   std::string getCoverBmpPath(bool cropped = false, bool originalThresholds = false) const;
   bool generateCoverBmp(bool cropped = false, bool originalThresholds = false) const;
   std::string getThumbBmpPath() const;

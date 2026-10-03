@@ -67,6 +67,11 @@ class ContentOpfParser final : public Print {
   std::string title;
   std::string author;
   std::string language;
+  // Calibre's series, from <meta name="calibre:series"> / "calibre:series_index".
+  // That is what calibredb embed_metadata writes, and what every Calibre-managed
+  // card therefore carries; EPUB 3's belongs-to-collection is not used by it.
+  std::string series;
+  float seriesIndex = 0.0f;
   std::string tocNcxPath;
   std::string tocNavPath;  // EPUB 3 nav document path
   std::string coverItemHref;

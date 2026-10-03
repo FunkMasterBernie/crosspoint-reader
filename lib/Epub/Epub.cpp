@@ -89,6 +89,8 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   bookMetadata.title = utf8ComposeNfc(opfParser.title);
   bookMetadata.author = utf8ComposeNfc(opfParser.author);
   bookMetadata.language = opfParser.language;
+  bookMetadata.series = utf8ComposeNfc(opfParser.series);
+  bookMetadata.seriesIndex = opfParser.seriesIndex;
 
   if (metadataOnly) {
     LOG_DBG("EBP", "Successfully parsed package metadata");
@@ -667,6 +669,17 @@ const std::string& Epub::getLanguage() const {
   static std::string blank;
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) return blank;
   return bookMetadataCache->coreMetadata.language;
+}
+
+const std::string& Epub::getSeries() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) return blank;
+  return bookMetadataCache->coreMetadata.series;
+}
+
+float Epub::getSeriesIndex() const {
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) return 0.0f;
+  return bookMetadataCache->coreMetadata.seriesIndex;
 }
 
 std::string Epub::getCoverBmpPath(bool cropped, bool originalThresholds) const {
