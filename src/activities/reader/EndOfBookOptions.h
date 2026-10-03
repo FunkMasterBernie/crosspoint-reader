@@ -52,7 +52,12 @@ class EndOfBookOptions : private UiAppHost {
   std::string folder;
   // Written by the render task in loadOnce(), immutable afterwards; the main task only
   // reads it after isLoaded is observed true (acquire), so no further locking is needed.
+  // Display labels, and the full path each one opens. Two vectors rather than a
+  // folder plus filenames: the next volume of a series routinely lives under a
+  // different author's folder, so a suggestion's path is no longer derivable
+  // from this book's.
   std::vector<std::string> names;
+  std::vector<std::string> paths;
   // Main-task selection updates may overlap a repaint on the render task.
   std::atomic<int> selector{0};
   std::atomic<bool> isLoaded{false};

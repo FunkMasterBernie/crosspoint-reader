@@ -9,6 +9,9 @@
 #include <string_view>
 
 #include "CrossPointSettings.h"
+#include "LibraryBuilder.h"
+#include "LibraryFormat.h"
+#include "LibraryIndexFile.h"
 
 namespace {
 constexpr size_t NAME_BUFFER_SIZE = 500;
@@ -82,4 +85,58 @@ std::vector<std::string> NextBookFinder::findNextBooks(const std::string& curren
   dir.close();
 
   return result;
+}
+
+std::string NextBookFinder::findNextInSeries(const std::string& currentBookPath, std::string& outLabel) {
+  outLabel.clear();
+  if (currentBookPath.empty()) return {};
+
+  // The index reader holds a record and its own read buffer; keep it off the
+  // stack like every other caller does.
+  struct IndexReader {
+    library::LibraryIndexFile index;
+    library::ClixRecord record{};
+  };
+  auto reader = makeUniqueNoThrow<IndexReader>();
+  if (!reader) {
+    LOG_ERR("NBF", "OOM: library index reader");
+    return {};
+  }
+  auto& index = reader->index;
+  // Read-only: a missing or stale index is a reason to fall back to the folder
+  // scan, never to rebuild the whole library from the end-of-book screen.
+  if (!index.open(library::libraryIndexPath())) return {};
+
+  const library::BookIdentity identity{library::clixPathHash(currentBookPath.data(), currentBookPath.size()), 0};
+  uint16_t row = 0xFFFF;
+  if (!index.recentRowsFor(&identity, 1, &row) || row == 0xFFFF) return {};
+
+  const uint16_t ordinal = index.ordinalForRow(library::SortOrder::RecentAsc, row);
+  if (ordinal == 0xFFFF || ordinal + 1 >= index.bookCount()) return {};
+
+  if (!index.readRecord(ordinal, reader->record)) return {};
+  std::string series;
+  index.readSeries(reader->record, series);
+  if (series.empty()) return {};  // standalone book
+
+  // Records are written in sort-key order and that key leads with the series, so
+  // the neighbour is the next volume whenever it belongs to the same series.
+  if (!index.readRecord(static_cast<uint16_t>(ordinal + 1), reader->record)) return {};
+  std::string nextSeries;
+  index.readSeries(reader->record, nextSeries);
+  if (nextSeries != series) return {};  // that was the last volume
+
+  std::string path;
+  if (!index.readPath(reader->record, path) || path.empty()) return {};
+  if (path == currentBookPath) return {};
+
+  if (!index.readTitle(reader->record, outLabel) || outLabel.empty()) {
+    std::string name;
+    if (index.readName(reader->record, name)) {
+      const auto dot = name.rfind('.');
+      outLabel = dot == std::string::npos ? name : name.substr(0, dot);
+    }
+  }
+  LOG_DBG("NBF", "Next in '%s': %s", series.c_str(), path.c_str());
+  return path;
 }

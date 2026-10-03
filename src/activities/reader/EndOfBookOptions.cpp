@@ -35,7 +35,31 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
     return;
   }
   folder = FsHelpers::extractFolderPath(currentBookPath);
-  names = NextBookFinder::findNextBooks(currentBookPath, MAX_SUGGESTIONS);
+  names.clear();
+  paths.clear();
+  names.reserve(MAX_SUGGESTIONS);
+  paths.reserve(MAX_SUGGESTIONS);
+
+  // The next volume of the same series leads, when there is one. It comes from
+  // the Library index, which knows the series and is already sorted by reading
+  // position, so "next" is the record after this one -- and it may be filed
+  // under a different author entirely, which the folder scan below could never
+  // reach.
+  std::string seriesLabel;
+  const std::string seriesNext = NextBookFinder::findNextInSeries(currentBookPath, seriesLabel);
+  if (!seriesNext.empty()) {
+    names.push_back(seriesLabel);
+    paths.push_back(seriesNext);
+  }
+
+  // Siblings in the same folder fill whatever is left.
+  for (const auto& name : NextBookFinder::findNextBooks(currentBookPath, MAX_SUGGESTIONS)) {
+    if (names.size() >= MAX_SUGGESTIONS) break;
+    const std::string path = folder == "/" ? "/" + name : folder + "/" + name;
+    if (path == seriesNext) continue;  // already leading the list
+    names.push_back(displayName(name));
+    paths.push_back(path);
+  }
   selector.store(0, std::memory_order_relaxed);
   if (!names.empty()) {
     // One-time app setup on the render task, before the first render/route.
@@ -49,13 +73,13 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
   isLoaded.store(true, std::memory_order_release);
 }
 
-// Populates rowLabels/rowItems from names + the trailing "Home" row. Called
+// Populates rowLabels/rowItems from the labels + the trailing "Home" row. Called
 // once here since names never changes after loadOnce() completes.
 void EndOfBookOptions::buildRowItems() {
   rowCount = 0;
   for (const auto& name : names) {
     if (rowCount >= MAX_ROWS) break;
-    rowLabels[rowCount] = displayName(name);
+    rowLabels[rowCount] = name;
     fui::ListItem item;
     item.label = rowLabels[rowCount].c_str();
     item.actionValue = static_cast<int16_t>(rowCount);
@@ -75,10 +99,10 @@ void EndOfBookOptions::buildRowItems() {
 bool EndOfBookOptions::menuActive() const { return isLoaded.load(std::memory_order_acquire) && !names.empty(); }
 
 std::string EndOfBookOptions::fullPath(const size_t index) const {
-  if (index >= names.size()) {
+  if (index >= paths.size()) {
     return {};
   }
-  return folder == "/" ? "/" + names[index] : folder + "/" + names[index];
+  return paths[index];
 }
 
 void EndOfBookOptions::onRowEvent(const fui::ActionEvent& event, void* user) {
